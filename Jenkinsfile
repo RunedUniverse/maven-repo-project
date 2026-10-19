@@ -1,6 +1,6 @@
 def evalValue(expression, path = null) {
     def output = sh( returnStdout: true, script: """
-            mvn-dev org.apache.maven.plugins:maven-help-plugin:3.5.1:evaluate \
+            set -x; mvn org.apache.maven.plugins:maven-help-plugin:3.5.1:evaluate \
                 -Dexpression=${ expression } -q -DforceStdout \
                 ${ path==null ? '' : ('-pl='+path) }
         """);
@@ -28,9 +28,10 @@ def installArtifact(mod, parent = null) {
 	def groupId = mod.metadata().get('maven.groupId');
 	def artifactId = mod.metadata().get('maven.artifactId');
 	def version = mod.metadata().get('maven.version');
+	def metadata = [ 'groupId': groupId, 'artifactId': artifactId, 'version': version ];
 	echo "Building: ${ groupId }:${ artifactId }:${ version }"
 	try {
-		sh "mvn-dev -P ${ REPOS },${ getToolchainId(mod) },ci-install -pl=${ relPath }"
+		sh "set -x; mvn -P ${ REPOS },${ getToolchainId(mod) },ci-install -pl=${ relPath }"
 	} finally {
 		def baseName = "${ artifactId }-${ version }"
 		// archive artifacts
@@ -48,16 +49,22 @@ def installArtifact(mod, parent = null) {
 		// create signatures
 		signArtifacts(artifacts: "${ baseName }*")
 		// bundle artifacts + signatures
-		bundleArtifacts( bundle: mod.id(), artifacts: "${ baseName }.pom*", metadata: [
-			'groupId': groupId, 'artifactId': artifactId, 'version': version
-		])
+		// # bundle pom: mark for git-tagging
+		bundleArtifacts( bundle: mod.id(),
+				artifacts: "${ baseName }.pom",
+				metadata: metadata + [ 'git.tag': true, 'git.tag.prefix': mod.id() ]);
+		// # bundle pom signature
+		bundleArtifacts( bundle: mod.id(),
+				artifacts: "${ baseName }.pom.*",
+				metadata: metadata);
+		// # bundle jar artifacts + signatures
 		for (test in [ false, true ]) {
 			for (classifier in [ '', 'javadoc', 'sources' ]) {
 				if(test)
-					classifier = classifier=='' ? 'tests' : ('test-'+classifier)
-				bundleArtifacts( bundle: mod.id(), artifacts: "${ baseName }${ classifier=='' ? '' : ('-'+classifier) }.jar*", metadata: [
-					'groupId': groupId, 'artifactId': artifactId, 'version': version, 'classifier': classifier
-				])
+					classifier = classifier=='' ? 'tests' : ('test-'+classifier);
+				bundleArtifacts( bundle: mod.id(),
+						artifacts: "${ baseName }${ classifier=='' ? '' : ('-'+classifier) }.jar*",
+						metadata: metadata + [ 'classifier': classifier ]);
 			}
 		}
 	}
@@ -73,8 +80,8 @@ def testArtifacts(mods, tag, toolchainId, testProfile, parent = null, properties
 
 		def modPaths = mods.collect({ it.relPathFrom(parent) }).join(',');
 		def props = properties.collect({ "-D${ it }" }).join(' ');
-		sh "mvn-dev -P ${ REPOS },${ toolchainId },ci-test-build -pl=${ modPaths } ${ props }"
-		sh "mvn-dev --fail-never -P ${ REPOS },${ toolchainId },ci-test-exec,${ testProfile } -pl=${ modPaths } ${ props }"
+		sh "set -x; mvn -P ${ REPOS },${ toolchainId },ci-test-build -pl=${ modPaths } ${ props }"
+		sh "set -x; mvn --fail-never -P ${ REPOS },${ toolchainId },ci-test-exec,${ testProfile } -pl=${ modPaths } ${ props }"
 		// check tests, archive reports in case junit flags errors
 		junit '*/target/surefire-reports/*.xml'
 		if(currentBuild.resultIsWorseOrEqualTo('UNSTABLE')) {
@@ -86,19 +93,17 @@ def testArtifacts(mods, tag, toolchainId, testProfile, parent = null, properties
 }
 
 node( label: 'linux' ) {
-	repoProxy(['maven>central': 'central', 'maven>runeduniverse>releases': 'rnet-releases', 'maven>runeduniverse>development': 'rnet-development']) {
+	repoProxy(['maven>central': 'central', 'maven>development': 'rnet-development']) {
 	withModules {
-		tool(name: 'maven-latest', type: 'maven')
-
 		stage('Checkout SCM') {
 			checkout(scm)
+			sh 'echo "-s=.mvn/settings.xml" >> .mvn/maven.config'
+			// TODO actually place the global-toolchains file on all jenkins hosts!
+			sh 'echo "--global-toolchains=.mvn/toolchains.xml" >> .mvn/maven.config'
 		}
 
-		sh 'chmod +x $WORKSPACE/.build/*'
-		env.setProperty('PATH+SCRIPTS', "${ env.WORKSPACE }/.build")
-		// env.GLOBAL_MAVEN_SETTINGS     = '/srv/jenkins/.m2/global-settings.xml'
-		env.MAVEN_SETTINGS            = "${ env.WORKSPACE }/.mvn/settings.xml"
-		env.MAVEN_TOOLCHAINS          = "${ env.WORKSPACE }/.mvn/toolchains.xml"
+		//sh 'chmod +x $WORKSPACE/.build/*'
+		//env.setProperty('PATH+SCRIPTS', "${ env.WORKSPACE }/.build")
 		if(env.BRANCH_NAME == 'master') {
 			env.REPOS = 'repo-releases'
 		} else {
@@ -147,16 +152,16 @@ node( label: 'linux' ) {
 
 		stage('Update Maven Repo') {
 			echo 'purging local maven repository'
-			sh "mvn-dev -P ${ REPOS } dependency:purge-local-repository -DactTransitively=false -DreResolve=false"
+			sh "set -x; mvn -P ${ REPOS } dependency:purge-local-repository -DactTransitively=false -DreResolve=false"
 
 			echo 'caching validation dependencies'
-			sh "mvn-dev -P ${ REPOS },ci-validate dependency:resolve-plugins dependency:resolve -U --fail-never"
+			sh "set -x; mvn -P ${ REPOS },ci-validate dependency:resolve-plugins dependency:resolve -U --fail-never"
 
 			if(checkAllModules(match: 'all', active: false)) {
 				echo 'skipping build dependency download » unused'
 			} else {
 				echo 'caching build dependencies'
-				sh "mvn-dev -P ${ REPOS },ci-install dependency:resolve -U --fail-never"
+				sh "set -x; mvn -P ${ REPOS },ci-install dependency:resolve -U --fail-never"
 			}
 		}
 
@@ -183,7 +188,7 @@ node( label: 'linux' ) {
 				// note: bugged maven artifact resolve requires all modules to be locally installed before license verification
 				def approvedLicenses = [ 'mit', 'apache2', 'epl-v10', 'epl-v20', 'bouncycastle' ]
 				def licenseProfiles = approvedLicenses.collect({ "license-${ it }-approve" }).join(',');
-				sh "mvn-dev -P ${ REPOS },ci-validate,${ licenseProfiles } --fail-at-end -T1C"
+				sh "set -x; mvn -P ${ REPOS },ci-validate,${ licenseProfiles } --fail-at-end -T1C"
 			}
 
 			stage('Smoke Test') {
@@ -247,32 +252,10 @@ node( label: 'linux' ) {
 					}
 					// bundle info
 					bundleInfo( bundle: mod.id(), metadata: true )
-					// deploy to development repo
-					stage('Develop'){
-						deployArtifacts( bundle: mod.id(), repo: 'nexus-runeduniverse>maven-development' )
-					}
-					// deploy to release repo
-					stage('Release') {
-						if(currentBuild.resultIsWorseOrEqualTo('UNSTABLE') || env.BRANCH_NAME != 'master') {
-							skipStage()
-							return
-						}
-						deployArtifacts( bundle: mod.id(), repo: 'nexus-runeduniverse>maven-releases' )
-						def groupId = mod.metadata().get('maven.groupId');
-						def artifactId = mod.metadata().get('maven.artifactId');
-						def version = mod.metadata().get('maven.version');
-						gitTagPush2(scm: scm, tag: "${ mod.id() }/v${ version }", comment: "[artifact] ${ groupId }:${ artifactId }:${ version }")
-					}
 					// merge bundles into default
 					bundleMerge( source: mod.id() )
 				}
-				stage('Stage at Maven-Central') {
-					if(currentBuild.resultIsWorseOrEqualTo('UNSTABLE') || env.BRANCH_NAME != 'master') {
-						skipStage()
-						return
-					}
-					deployArtifacts( repo: 'maven-central>net.runeduniverse' )
-				}
+				deployArtifacts( pipe: 'maven>publish' )
 			}
 		}
 
