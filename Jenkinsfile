@@ -111,15 +111,11 @@ bundleContext {
 
 		//sh 'chmod +x $WORKSPACE/.build/*'
 		//env.setProperty('PATH+SCRIPTS', "${ env.WORKSPACE }/.build")
-		env.RESULT_PATH  = "${ WORKSPACE }/result/"
-		env.ARCHIVE_PATH = "${ WORKSPACE }/archive/"
 
 		withModules {
 			repoProxy(['maven>central': 'central', 'maven>development': 'rnet-development']) {
 				stage('Init Project') {
 					// future init will auto discover modules with maven -> proxy required
-					sh "mkdir -p ${ RESULT_PATH }"
-					sh "mkdir -p ${ ARCHIVE_PATH }"
 
 					addModule( id: 'project',               path: '.',                     name: 'Maven Project',                 tags: [  ])
 					addModule( id: 'bom',                   path: 'bom',                   name: 'Bill of Materials',             tags: [ 'bom' ])
@@ -244,23 +240,6 @@ bundleContext {
 					// merge bundles into default
 					bundleMerge( source: mod.id() )
 				}
-			}
-		}
-
-		stage('Package Build Result') {
-			// NOTE: will probably be moved to deployment pipe
-			if(checkAllModules(match: 'all', active: false)) {
-				skipStage()
-				return
-			}
-			dir(path: "${ env.RESULT_PATH }") {
-				unarchive mapping: ['*':'.']
-				sh 'ls -l'
-				sh "tar -I \"pxz -9\" -cvf ${ ARCHIVE_PATH }artifacts.tar.xz *"
-				sh "zip -9 ${ ARCHIVE_PATH }artifacts.zip *"
-			}
-			dir(path: "${ env.ARCHIVE_PATH }") {
-				archiveArtifacts artifacts: '*', fingerprint: true
 			}
 		}
 	}
