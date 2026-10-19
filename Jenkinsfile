@@ -242,13 +242,13 @@ bundleContext {
 				}
 			}
 		}
+
+		stage('Clean Workspace') {
+			cleanWs()
+		}
 	}
 
 	stage('Deploy') {
 		deployArtifacts( pipe: 'maven>publish' )
 	}
-}
-
-stage('Clean Workspace') {
-	cleanWs()
 }
