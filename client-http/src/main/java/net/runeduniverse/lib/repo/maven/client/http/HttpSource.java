@@ -19,6 +19,7 @@ import java.net.URI;
 import java.nio.file.Path;
 import java.util.Deque;
 import java.util.LinkedList;
+import io.netty.handler.ssl.SslContext;
 import net.runeduniverse.lib.repo.maven.api.ArtifactValidator;
 import net.runeduniverse.lib.repo.maven.api.MetadataValidator;
 import net.runeduniverse.lib.repo.maven.api.Credentials;
@@ -33,6 +34,7 @@ public class HttpSource extends ARepositorySource implements RepositorySource {
 	private RepositorySourceClient client = null;
 	private AuthStateProvider repoAuthStateProvider = null;
 	private AuthStateProvider proxyAuthStateProvider = null;
+	private SslContext sslContext = HttpSourceClient.defaultSslContext();
 
 	public HttpSource(final String key, final URI uri, final Path repoPath, final int maxRedirects,
 			final int maxRetries) {
@@ -66,6 +68,10 @@ public class HttpSource extends ARepositorySource implements RepositorySource {
 		return this.proxyAuthStateProvider = new DefaultAuthStateProvider(getProxyCredentials());
 	}
 
+	public SslContext getSslContext() {
+		return this.sslContext;
+	}
+
 	@Override
 	public HttpSource setRepoCredentials(final Credentials credentials) {
 		super.setRepoCredentials(credentials);
@@ -75,6 +81,11 @@ public class HttpSource extends ARepositorySource implements RepositorySource {
 	@Override
 	public HttpSource setProxyCredentials(final Credentials credentials) {
 		super.setProxyCredentials(credentials);
+		return this;
+	}
+
+	public HttpSource setSslContext(final SslContext sslContext) {
+		this.sslContext = sslContext;
 		return this;
 	}
 }

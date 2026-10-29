@@ -80,18 +80,10 @@ public class HttpSourceClient implements RepositorySourceClient {
 		if (this.bootstrap != null)
 			return this.bootstrap;
 
-		SslContext sslCtx = null;
-		try {
-			sslCtx = SslContextBuilder.forClient()
-					.build();
-		} catch (SSLException ignored) {
-			ignored.printStackTrace();
-		}
-
 		return this.bootstrap = new Bootstrap()//
 				.group(this.loopGroup)
 				.channel(NioSocketChannel.class)
-				.handler(new HttpRepoClientInitializer(sslCtx))
+				.handler(new HttpRepoClientInitializer(this.source.getSslContext()))
 				.attr(HttpClientUtils.ATTKEY_HTTP_AUTH_PROVIDER, this.source.getRepoAuthStateProvider())
 				.attr(HttpClientUtils.ATTKEY_HTTP_PROXY_AUTH_PROVIDER, this.source.getProxyAuthStateProvider());
 	}
@@ -170,4 +162,13 @@ public class HttpSourceClient implements RepositorySourceClient {
 						.setAfter(this::completeSubRequests));
 	}
 
+	public static SslContext defaultSslContext() {
+		try {
+			return SslContextBuilder.forClient()
+					.build();
+		} catch (SSLException ignored) {
+			ignored.printStackTrace();
+		}
+		return null;
+	}
 }
