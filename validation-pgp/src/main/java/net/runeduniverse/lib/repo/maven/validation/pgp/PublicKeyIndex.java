@@ -67,6 +67,7 @@ public class PublicKeyIndex {
 	protected final int maxRedirects;
 	protected final int maxRetries;
 
+	private SslContext sslContext = defaultSslContext();
 	private Bootstrap bootstrap = null;
 
 	public PublicKeyIndex(final int maxRedirects, final int maxRetries) {
@@ -87,6 +88,40 @@ public class PublicKeyIndex {
 		this.maxRetries = maxRetries;
 	}
 
+	// ---- GETTER ----
+
+	public SslContext getSslContext() {
+		return this.sslContext;
+	}
+
+	public PGPPublicKey getCachedKey(final byte[] fingerprint) {
+		final CompletableFuture<PGPPublicKey> future = this.pubKeyMap.get(toHexFingerprint(fingerprint));
+		if (future == null)
+			return null;
+		try {
+			return future.getNow(null);
+		} catch (CancellationException | CompletionException e) {
+			return null;
+		}
+	}
+
+	// ---- SETTER ----
+
+	public PublicKeyIndex setSslContext(final SslContext sslContext) {
+		this.sslContext = sslContext;
+		return this;
+	}
+
+	public static SslContext defaultSslContext() {
+		try {
+			return SslContextBuilder.forClient()
+					.build();
+		} catch (SSLException ignored) {
+			ignored.printStackTrace();
+		}
+		return null;
+	}
+
 	public PublicKeyIndex addKeyserver(final Keyserver keyserver) {
 		Objects.requireNonNull(keyserver);
 		this.keyservers.computeIfAbsent(keyserver.priority(), k -> new HashSet<>())
@@ -101,16 +136,7 @@ public class PublicKeyIndex {
 		return this;
 	}
 
-	public PGPPublicKey getKey(final byte[] fingerprint) {
-		final CompletableFuture<PGPPublicKey> future = this.pubKeyMap.get(toHexFingerprint(fingerprint));
-		if (future == null)
-			return null;
-		try {
-			return future.getNow(null);
-		} catch (CancellationException | CompletionException e) {
-			return null;
-		}
-	}
+	// ---- EXECUTE ----
 
 	public CompletableFuture<PGPPublicKey> fetchKeyIfAbsent(final byte[] fingerprint) {
 		return fetchKeyIfAbsent(toHexFingerprint(fingerprint));
@@ -429,18 +455,10 @@ public class PublicKeyIndex {
 		if (this.bootstrap != null)
 			return this.bootstrap;
 
-		SslContext sslCtx = null;
-		try {
-			sslCtx = SslContextBuilder.forClient()
-					.build();
-		} catch (SSLException ignored) {
-			ignored.printStackTrace();
-		}
-
 		return this.bootstrap = new Bootstrap()//
 				.group(this.loopGroup)
 				.channel(NioSocketChannel.class)
-				.handler(new PKClientInitializer(sslCtx));
+				.handler(new PKClientInitializer(getSslContext()));
 	}
 
 	public void shutdownGracefully() {
